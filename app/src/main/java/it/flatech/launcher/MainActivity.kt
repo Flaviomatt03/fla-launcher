@@ -67,6 +67,17 @@ class MainActivity : Activity() {
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                 val s = r.url.scheme
                 if (s == "http" || s == "https") return false
+                if (s == "intent") {
+                    try {
+                        val i = Intent.parseUri(r.url.toString(), Intent.URI_INTENT_SCHEME)
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        i.setComponent(null); i.setSelector(null)
+                        startActivity(i)
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Impossibile aprire: " + (e.message ?: "errore"), Toast.LENGTH_LONG).show()
+                    }
+                    return true
+                }
                 try { startActivity(Intent(Intent.ACTION_VIEW, r.url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
                 return true
             }
@@ -164,6 +175,7 @@ class MainActivity : Activity() {
     inner class Bridge {
         @JavascriptInterface fun startListen() { runOnUiThread { listen() } }
         @JavascriptInterface fun stopListen() { runOnUiThread { killRec(); h.postDelayed(unmute, 1500) } }
+        @JavascriptInterface fun ver(): String = "1.3"
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.reload() } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
@@ -179,8 +191,15 @@ class MainActivity : Activity() {
                     startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                     return@runOnUiThread
                 }
-                try { startForegroundService(Intent(this@MainActivity, BubbleService::class.java)) } catch (_: Exception) {}
-                startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                try { startForegroundService(Intent(this@MainActivity, BubbleService::class.java)) } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity, "Bollina non attiva: " + (e.message ?: "?"), Toast.LENGTH_LONG).show()
+                }
+                try {
+                    startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity, "Errore apertura: " + (e.message ?: "?"), Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
             }
         }
     }

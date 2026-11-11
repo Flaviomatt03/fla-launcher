@@ -25,8 +25,12 @@ class BubbleService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startFg()
-        if (bubble == null) addBubble()
+        try {
+            startFg()
+            if (bubble == null) addBubble()
+        } catch (e: Exception) {
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
 
