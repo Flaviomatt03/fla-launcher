@@ -22,6 +22,9 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
+import java.net.URL
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -171,11 +174,45 @@ class MainActivity : Activity() {
         })
     }
 
+
+    // ---------- aggiornamento del launcher da GitHub Releases ----------
+    private fun toastUi(m: String) { runOnUiThread { Toast.makeText(this, m, Toast.LENGTH_LONG).show() } }
+
+    private fun doUpdate() {
+        try {
+            val base = "https://github.com/Flaviomatt03/fla-launcher/releases/download/latest/"
+            val remote = URL(base + "version.txt").openStream().bufferedReader().use { it.readText() }.trim().toLong()
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            @Suppress("DEPRECATION")
+            val local = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
+            if (remote <= local) { toastUi("Launcher già aggiornato"); return }
+            if (!packageManager.canRequestPackageInstalls()) {
+                toastUi("Consenti a FLA-Tech di installare app, poi tocca di nuovo l\u2019ingranaggio")
+                runOnUiThread { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) }
+                return
+            }
+            toastUi("Scarico il nuovo launcher\u2026")
+            val dir = File(cacheDir, "updates"); dir.mkdirs()
+            val f = File(dir, "app.apk")
+            URL(base + "app-debug.apk").openStream().use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+            val uri = FileProvider.getUriForFile(this, "$packageName.fp", f)
+            runOnUiThread {
+                startActivity(
+                    Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        } catch (e: Exception) {
+            toastUi("Aggiornamento launcher non riuscito: " + (e.message ?: "errore"))
+        }
+    }
+
     // ---------- ponte JS ----------
     inner class Bridge {
         @JavascriptInterface fun startListen() { runOnUiThread { listen() } }
         @JavascriptInterface fun stopListen() { runOnUiThread { killRec(); h.postDelayed(unmute, 1500) } }
-        @JavascriptInterface fun ver(): String = "1.3"
+        @JavascriptInterface fun ver(): String = "1.4"
+        @JavascriptInterface fun checkUpdate() { Thread { doUpdate() }.start() }
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.reload() } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
