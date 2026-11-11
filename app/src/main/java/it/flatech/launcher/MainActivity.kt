@@ -37,7 +37,14 @@ class MainActivity : Activity() {
         "whatsapp" to listOf("com.whatsapp"),
         "instagram" to listOf("com.instagram.android"),
         "chrome" to listOf("com.android.chrome"),
-        "rubrica" to listOf("com.samsung.android.app.contacts", "com.google.android.contacts", "com.android.contacts")
+        "rubrica" to listOf("com.samsung.android.app.contacts", "com.google.android.contacts", "com.android.contacts"),
+        "galleria" to listOf("com.sec.android.gallery3d", "com.google.android.apps.photos", "com.android.gallery3d"),
+        "camera" to listOf("com.sec.android.app.camera", "com.android.camera"),
+        "chat" to listOf("com.samsung.android.messaging", "com.google.android.apps.messaging"),
+        "note" to listOf("com.samsung.android.app.notes", "com.google.android.keep"),
+        "impostazioni" to listOf("com.android.settings"),
+        "intesa" to listOf("com.latuabancaperandroid"),
+        "claude" to listOf("com.anthropic.claude")
     )
 
     override fun onCreate(b: Bundle?) {
@@ -157,6 +164,7 @@ class MainActivity : Activity() {
     inner class Bridge {
         @JavascriptInterface fun startListen() { runOnUiThread { listen() } }
         @JavascriptInterface fun stopListen() { runOnUiThread { killRec(); h.postDelayed(unmute, 1500) } }
+        @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.reload() } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
         @JavascriptInterface fun openApp(id: String) {
