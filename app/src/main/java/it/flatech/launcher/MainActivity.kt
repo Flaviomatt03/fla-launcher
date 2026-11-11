@@ -167,13 +167,15 @@ class MainActivity : Activity() {
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.reload() } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
-        @JavascriptInterface fun openApp(id: String) {
+        @JavascriptInterface fun openApp(id: String) { launch(id, apps[id] ?: return) }
+        @JavascriptInterface fun openPkgs(id: String, csv: String) { launch(id, csv.split(",").filter { it.isNotBlank() }) }
+
+        private fun launch(id: String, pk: List<String>) {
             runOnUiThread {
-                val pk = apps[id] ?: return@runOnUiThread
                 val intent = pk.firstNotNullOfOrNull { packageManager.getLaunchIntentForPackage(it) }
                 if (intent == null) { Toast.makeText(this@MainActivity, "App non installata", Toast.LENGTH_SHORT).show(); return@runOnUiThread }
                 if (!Settings.canDrawOverlays(this@MainActivity)) {
-                    Toast.makeText(this@MainActivity, "Consenti “Mostra sopra altre app” per la bollina, poi riprova", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "Consenti \u201CMostra sopra altre app\u201D per la bollina, poi riprova", Toast.LENGTH_LONG).show()
                     startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                     return@runOnUiThread
                 }
