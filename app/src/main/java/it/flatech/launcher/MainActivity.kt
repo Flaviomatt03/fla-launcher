@@ -78,7 +78,7 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        val perms = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        val perms = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS)
         if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
         if (perms.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) requestPermissions(perms.toTypedArray(), 1)
 
@@ -297,6 +297,27 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
             } catch (e: Exception) { false }
         }
         @JavascriptInterface fun torchState(): Boolean = torchOn
+        @JavascriptInterface fun findContact(q: String): String {
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return ""
+            fun nz(x: String) = java.text.Normalizer.normalize(x, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
+            val toks = nz(q).split(Regex("\\s+")).filter { it.isNotBlank() }
+            if (toks.isEmpty()) return ""
+            var best: Pair<String, String>? = null
+            try {
+                contentResolver.query(android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER),
+                    null, null, null)?.use { c ->
+                    while (c.moveToNext()) {
+                        val n = c.getString(0) ?: continue
+                        val num = c.getString(1) ?: continue
+                        val nn = nz(n)
+                        if (toks.all { nn.contains(it) } && (best == null || n.length < best!!.first.length)) best = Pair(n, num)
+                    }
+                }
+            } catch (_: Exception) { return "" }
+            val b = best ?: return ""
+            return JSONObject().put("n", b.first).put("p", b.second).toString()
+        }
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.loadUrl(URL) } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
