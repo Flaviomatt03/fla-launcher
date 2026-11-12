@@ -232,11 +232,15 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
     private fun doUpdate() {
         try {
             val base = "https://github.com/Flaviomatt03/fla-launcher/releases/download/latest/"
-            val remote = URL(base + "version.txt").openStream().bufferedReader().use { it.readText() }.trim().toLong()
+            val vc = URL(base + "version.txt").openConnection()
+            vc.useCaches = false
+            vc.setRequestProperty("Cache-Control", "no-cache")
+            val remote = vc.getInputStream().bufferedReader().use { it.readText() }.trim().toLong()
             val pi = packageManager.getPackageInfo(packageName, 0)
             @Suppress("DEPRECATION")
             val local = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
-            if (remote <= local) { toastUi("Launcher già aggiornato"); return }
+            if (remote <= local) { toastUi("Launcher già aggiornato (ho " + local + ", online c\u2019è " + remote + ")"); return }
+            toastUi("Nuovo launcher trovato: " + local + " \u2192 " + remote)
             if (!packageManager.canRequestPackageInstalls()) {
                 toastUi("Consenti a FLA-Tech di installare app, poi tocca di nuovo l\u2019ingranaggio")
                 runOnUiThread { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) }
@@ -262,7 +266,7 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
     inner class Bridge {
         @JavascriptInterface fun startListen() { runOnUiThread { listen() } }
         @JavascriptInterface fun stopListen() { runOnUiThread { killRec(); h.postDelayed(unmute, 1500) } }
-        @JavascriptInterface fun ver(): String = "1.4"
+        @JavascriptInterface fun ver(): String = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "?" } catch (e: Exception) { "?" }
         @JavascriptInterface fun checkUpdate() { Thread { doUpdate() }.start() }
         @JavascriptInterface fun battery(): String {
             val i = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
