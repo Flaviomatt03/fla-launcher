@@ -18,6 +18,7 @@ import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -29,7 +30,25 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : Activity() {
-    companion object { const val URL = "https://flaviomatt03.github.io/fla-tech/" }
+    companion object {
+        const val URL = "https://flaviomatt03.github.io/fla-tech/"
+        const val OFFLINE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{margin:0;height:100%;background:#08131E;color:#E6F4FC;font-family:system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;box-sizing:border-box}
+svg{filter:drop-shadow(0 0 14px rgba(160,225,255,.8));margin-bottom:6px}
+h1{font-size:22px;margin:0}
+p{margin:0;color:#9FB6C6;font-size:15px;line-height:1.45;max-width:300px}
+button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,30,46,.85);color:#E6F4FC;font-size:17px;font-weight:700;padding:14px 34px;border-radius:30px;box-shadow:0 0 18px rgba(90,200,245,.3)}
+</style></head><body>
+<svg width="86" height="78" viewBox="0 0 154 140"><path d="M77 20 L136 120 L18 120 Z" fill="#CBEBFC" stroke="#CBEBFC" stroke-width="18" stroke-linejoin="round"/></svg>
+<h1>Nessuna connessione</h1>
+<p>Non riesco a caricare FLA-Tech. Controlla internet: appena torna, riprovo da solo.</p>
+<button onclick="FLAAndroid.refresh()">Riprova</button>
+<script>window.addEventListener('online',function(){FLAAndroid.refresh()})</script>
+</body></html>"""
+    }
+    private var offline = false
 
     private lateinit var web: WebView
     private var sr: SpeechRecognizer? = null
@@ -67,6 +86,15 @@ class MainActivity : Activity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         web.addJavascriptInterface(Bridge(), "FLAAndroid")
         web.webViewClient = object : WebViewClient() {
+            override fun onReceivedError(v: WebView, r: WebResourceRequest, e: WebResourceError) {
+                if (r.isForMainFrame) {
+                    offline = true
+                    v.loadDataWithBaseURL("about:blank", OFFLINE, "text/html", "utf-8", null)
+                }
+            }
+            override fun onPageFinished(v: WebView, u: String?) {
+                if (u != null && u.startsWith("http")) offline = false
+            }
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                 val s = r.url.scheme
                 if (s == "http" || s == "https") return false
@@ -95,6 +123,7 @@ class MainActivity : Activity() {
         super.onResume()
         stopService(Intent(this, BubbleService::class.java))
         web.onResume()
+        if (offline) web.loadUrl(URL)
     }
 
     override fun onPause() {
@@ -213,7 +242,7 @@ class MainActivity : Activity() {
         @JavascriptInterface fun stopListen() { runOnUiThread { killRec(); h.postDelayed(unmute, 1500) } }
         @JavascriptInterface fun ver(): String = "1.4"
         @JavascriptInterface fun checkUpdate() { Thread { doUpdate() }.start() }
-        @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.reload() } }
+        @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.loadUrl(URL) } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
         @JavascriptInterface fun openApp(id: String) { launch(id, apps[id] ?: return) }
