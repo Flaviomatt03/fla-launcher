@@ -2,6 +2,8 @@ package it.flatech.launcher
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
@@ -38,6 +40,7 @@ import org.json.JSONObject
 
 class MainActivity : Activity() {
     companion object {
+        @Volatile var visible = false
         const val URL = "https://flaviomatt03.github.io/fla-tech/"
         const val OFFLINE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
@@ -81,6 +84,7 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
         val perms = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS)
         if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
         if (perms.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) requestPermissions(perms.toTypedArray(), 1)
+        askExactAlarm()
 
         web = WebView(this)
         setContentView(web)
@@ -144,8 +148,22 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
         if (hasFocus) immersive()
     }
 
+    private fun askExactAlarm() {
+        try {
+            if (Build.VERSION.SDK_INT < 31) return
+            val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val sp = getSharedPreferences("fla_alarm", Context.MODE_PRIVATE)
+            if (!am.canScheduleExactAlarms() && !sp.getBoolean("asked", false)) {
+                sp.edit().putBoolean("asked", true).apply()
+                Toast.makeText(this, "Consenti le sveglie precise per far suonare i promemoria a schermo spento", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
+            }
+        } catch (_: Exception) {}
+    }
+
     override fun onResume() {
         super.onResume()
+        visible = true
         stopService(Intent(this, BubbleService::class.java))
         web.onResume()
         if (offline) web.loadUrl(URL)
@@ -153,6 +171,7 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
 
     override fun onPause() {
         super.onPause()
+        visible = false
         killRec()
         mute(false)
     }
@@ -319,6 +338,37 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
             } catch (e: Exception) { false }
         }
         @JavascriptInterface fun torchState(): Boolean = torchOn
+        @JavascriptInterface fun schedule(id: Int, at: Double, text: String): Boolean {
+            return try {
+                val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                val pi = PendingIntent.getBroadcast(
+                    this@MainActivity, id,
+                    Intent(this@MainActivity, AlarmReceiver::class.java).putExtra("id", id).putExtra("text", text),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                val t = at.toLong()
+                if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi)
+                else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi)
+                true
+            } catch (e: Exception) { false }
+        }
+        @JavascriptInterface fun cancel(id: Int) {
+            try {
+                val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                val pi = PendingIntent.getBroadcast(
+                    this@MainActivity, id, Intent(this@MainActivity, AlarmReceiver::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE
+                )
+                if (pi != null) { am.cancel(pi); pi.cancel() }
+            } catch (_: Exception) {}
+        }
+        @JavascriptInterface fun takeFired(): String {
+            val sp = getSharedPreferences("fla_alarm", Context.MODE_PRIVATE)
+            val s = sp.getStringSet("fired", emptySet()) ?: emptySet()
+            if (s.isEmpty()) return ""
+            sp.edit().remove("fired").apply()
+            return s.joinToString(",")
+        }
         @JavascriptInterface fun findContact(q: String): String {
             if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return ""
             fun nz(x: String) = java.text.Normalizer.normalize(x, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
