@@ -2,7 +2,10 @@ package it.flatech.launcher
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioManager
@@ -263,6 +266,8 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
     }
 
     // ---------- ponte JS ----------
+    private var torchOn = false
+
     inner class Bridge {
         @JavascriptInterface fun startListen() { runOnUiThread { listen() } }
         @JavascriptInterface fun stopListen() { runOnUiThread { killRec(); h.postDelayed(unmute, 1500) } }
@@ -281,6 +286,17 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
             val id = resources.getIdentifier("status_bar_height", "dimen", "android")
             return if (id > 0) resources.getDimensionPixelSize(id) / resources.displayMetrics.density.toDouble() else 28.0
         }
+        @JavascriptInterface fun torch(on: Boolean): Boolean {
+            return try {
+                val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                val id = cm.cameraIdList.firstOrNull {
+                    val c = cm.getCameraCharacteristics(it)
+                    c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true && c.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                } ?: return false
+                cm.setTorchMode(id, on); torchOn = on; true
+            } catch (e: Exception) { false }
+        }
+        @JavascriptInterface fun torchState(): Boolean = torchOn
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.loadUrl(URL) } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
