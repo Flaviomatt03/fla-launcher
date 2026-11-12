@@ -223,11 +223,33 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 4)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            try { putStringArrayListExtra("android.speech.extra.BIASING_STRINGS", biasList()) } catch (_: Exception) {}
+            putExtra("android.speech.extra.PREFER_OFFLINE", false)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
         })
     }
 
+
+    private var biasCache: ArrayList<String>? = null
+    private fun biasList(): ArrayList<String> {
+        biasCache?.let { return it }
+        val out = LinkedHashSet<String>()
+        out.addAll(listOf("FLA-Tech", "Hey Fla", "torcia", "timer", "promemoria", "ricordami", "calendario", "Finanze", "Spotify", "WhatsApp", "Instagram", "YouTube", "ChatGPT", "Claude", "scrivi a", "chiama", "portami a", "metti la playlist", "aggiungi in coda", "meteo", "luna", "obiettivo", "buongiorno", "buonanotte", "cuore giallo", "cuore rosso", "cuore blu", "cuore verde"))
+        try {
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                contentResolver.query(android.provider.ContactsContract.Contacts.CONTENT_URI, arrayOf(android.provider.ContactsContract.Contacts.DISPLAY_NAME),
+                    android.provider.ContactsContract.Contacts.STARRED + "=1", null, null)?.use { c ->
+                    while (c.moveToNext() && out.size < 90) c.getString(0)?.let { out.add(it) }
+                }
+                contentResolver.query(android.provider.ContactsContract.Contacts.CONTENT_URI, arrayOf(android.provider.ContactsContract.Contacts.DISPLAY_NAME),
+                    null, null, android.provider.ContactsContract.Contacts.TIMES_CONTACTED + " DESC")?.use { c ->
+                    while (c.moveToNext() && out.size < 90) c.getString(0)?.let { out.add(it) }
+                }
+            }
+        } catch (_: Exception) {}
+        val r = ArrayList(out.toList().take(100)); biasCache = r; return r
+    }
 
     // ---------- aggiornamento del launcher da GitHub Releases ----------
     private fun toastUi(m: String) { runOnUiThread { Toast.makeText(this, m, Toast.LENGTH_LONG).show() } }
