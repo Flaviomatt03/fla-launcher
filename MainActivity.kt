@@ -2,10 +2,17 @@ package it.flatech.launcher
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -14,6 +21,8 @@ import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.view.View
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -30,7 +39,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : Activity() {
+    private var fileCb: android.webkit.ValueCallback<Array<android.net.Uri>>? = null
+
+    override fun onActivityResult(req: Int, res: Int, data: Intent?) {
+        if (req == 77) {
+            val u = if (res == RESULT_OK && data?.data != null) arrayOf(data.data!!) else null
+            fileCb?.onReceiveValue(u)
+            fileCb = null
+        } else super.onActivityResult(req, res, data)
+    }
     companion object {
+        @Volatile var visible = false
         const val URL = "https://flaviomatt03.github.io/fla-tech/"
         const val OFFLINE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
@@ -71,12 +90,14 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        val perms = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        val perms = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS, Manifest.permission.CAMERA)
         if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
         if (perms.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) requestPermissions(perms.toTypedArray(), 1)
+        askExactAlarm()
 
         web = WebView(this)
         setContentView(web)
+        immersive()
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -115,12 +136,52 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(r: PermissionRequest) { runOnUiThread { r.grant(r.resources) } }
+            override fun onShowFileChooser(w: WebView?, cb: android.webkit.ValueCallback<Array<android.net.Uri>>?, p: FileChooserParams?): Boolean {
+                fileCb?.onReceiveValue(null)
+                fileCb = cb
+                return try {
+                    val i = Intent(Intent.ACTION_GET_CONTENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "image/*" }
+                    startActivityForResult(i, 77)
+                    true
+                } catch (e: Exception) { fileCb = null; false }
+            }
         }
         web.loadUrl(URL)
     }
 
+    private fun immersive() {
+        if (Build.VERSION.SDK_INT >= 28) {
+            val a = window.attributes
+            a.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = a
+        }
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            or View.SYSTEM_UI_FLAG_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) immersive()
+    }
+
+    private fun askExactAlarm() {
+        try {
+            if (Build.VERSION.SDK_INT < 31) return
+            val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val sp = getSharedPreferences("fla_alarm", Context.MODE_PRIVATE)
+            if (!am.canScheduleExactAlarms() && !sp.getBoolean("asked", false)) {
+                sp.edit().putBoolean("asked", true).apply()
+                Toast.makeText(this, "Consenti le sveglie precise per far suonare i promemoria a schermo spento", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
+            }
+        } catch (_: Exception) {}
+    }
+
     override fun onResume() {
         super.onResume()
+        visible = true
         stopService(Intent(this, BubbleService::class.java))
         web.onResume()
         if (offline) web.loadUrl(URL)
@@ -128,6 +189,7 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
 
     override fun onPause() {
         super.onPause()
+        visible = false
         killRec()
         mute(false)
     }
@@ -198,11 +260,33 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 4)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            try { putStringArrayListExtra("android.speech.extra.BIASING_STRINGS", biasList()) } catch (_: Exception) {}
+            putExtra("android.speech.extra.PREFER_OFFLINE", false)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
         })
     }
 
+
+    private var biasCache: ArrayList<String>? = null
+    private fun biasList(): ArrayList<String> {
+        biasCache?.let { return it }
+        val out = LinkedHashSet<String>()
+        out.addAll(listOf("FLA-Tech", "Hey Fla", "torcia", "timer", "promemoria", "ricordami", "calendario", "Finanze", "Spotify", "WhatsApp", "Instagram", "YouTube", "ChatGPT", "Claude", "scrivi a", "chiama", "portami a", "metti la playlist", "aggiungi in coda", "meteo", "luna", "obiettivo", "buongiorno", "buonanotte", "cuore giallo", "cuore rosso", "cuore blu", "cuore verde"))
+        try {
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                contentResolver.query(android.provider.ContactsContract.Contacts.CONTENT_URI, arrayOf(android.provider.ContactsContract.Contacts.DISPLAY_NAME),
+                    android.provider.ContactsContract.Contacts.STARRED + "=1", null, null)?.use { c ->
+                    while (c.moveToNext() && out.size < 90) c.getString(0)?.let { out.add(it) }
+                }
+                contentResolver.query(android.provider.ContactsContract.Contacts.CONTENT_URI, arrayOf(android.provider.ContactsContract.Contacts.DISPLAY_NAME),
+                    null, null, android.provider.ContactsContract.Contacts.TIMES_CONTACTED + " DESC")?.use { c ->
+                    while (c.moveToNext() && out.size < 90) c.getString(0)?.let { out.add(it) }
+                }
+            }
+        } catch (_: Exception) {}
+        val r = ArrayList(out.toList().take(100)); biasCache = r; return r
+    }
 
     // ---------- aggiornamento del launcher da GitHub Releases ----------
     private fun toastUi(m: String) { runOnUiThread { Toast.makeText(this, m, Toast.LENGTH_LONG).show() } }
@@ -210,11 +294,15 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
     private fun doUpdate() {
         try {
             val base = "https://github.com/Flaviomatt03/fla-launcher/releases/download/latest/"
-            val remote = URL(base + "version.txt").openStream().bufferedReader().use { it.readText() }.trim().toLong()
+            val vc = URL(base + "version.txt").openConnection()
+            vc.useCaches = false
+            vc.setRequestProperty("Cache-Control", "no-cache")
+            val remote = vc.getInputStream().bufferedReader().use { it.readText() }.trim().toLong()
             val pi = packageManager.getPackageInfo(packageName, 0)
             @Suppress("DEPRECATION")
             val local = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else pi.versionCode.toLong()
-            if (remote <= local) { toastUi("Launcher già aggiornato"); return }
+            if (remote <= local) { toastUi("Launcher già aggiornato (ho " + local + ", online c\u2019è " + remote + ")"); return }
+            toastUi("Nuovo launcher trovato: " + local + " \u2192 " + remote)
             if (!packageManager.canRequestPackageInstalls()) {
                 toastUi("Consenti a FLA-Tech di installare app, poi tocca di nuovo l\u2019ingranaggio")
                 runOnUiThread { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) }
@@ -237,14 +325,103 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
     }
 
     // ---------- ponte JS ----------
+    private var torchOn = false
+
     inner class Bridge {
         @JavascriptInterface fun startListen() { runOnUiThread { listen() } }
         @JavascriptInterface fun stopListen() { runOnUiThread { killRec(); h.postDelayed(unmute, 1500) } }
-        @JavascriptInterface fun ver(): String = "1.4"
+        @JavascriptInterface fun ver(): String = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "?" } catch (e: Exception) { "?" }
         @JavascriptInterface fun checkUpdate() { Thread { doUpdate() }.start() }
+        @JavascriptInterface fun battery(): String {
+            val i = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val l = i?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val sc = i?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+            val st = i?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val ch = st == BatteryManager.BATTERY_STATUS_CHARGING || st == BatteryManager.BATTERY_STATUS_FULL
+            val pct = if (l < 0 || sc <= 0) -1 else l * 100 / sc
+            return "{\"l\":" + pct + ",\"c\":" + ch + "}"
+        }
+        @JavascriptInterface fun inset(): Double {
+            val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+            return if (id > 0) resources.getDimensionPixelSize(id) / resources.displayMetrics.density.toDouble() else 28.0
+        }
+        @JavascriptInterface fun torch(on: Boolean): Boolean {
+            return try {
+                val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                val id = cm.cameraIdList.firstOrNull {
+                    val c = cm.getCameraCharacteristics(it)
+                    c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true && c.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                } ?: return false
+                cm.setTorchMode(id, on); torchOn = on; true
+            } catch (e: Exception) { false }
+        }
+        @JavascriptInterface fun torchState(): Boolean = torchOn
+        @JavascriptInterface fun schedule(id: Int, at: Double, text: String): Boolean {
+            return try {
+                val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                val pi = PendingIntent.getBroadcast(
+                    this@MainActivity, id,
+                    Intent(this@MainActivity, AlarmReceiver::class.java).putExtra("id", id).putExtra("text", text),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                val t = at.toLong()
+                if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi)
+                else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi)
+                true
+            } catch (e: Exception) { false }
+        }
+        @JavascriptInterface fun cancel(id: Int) {
+            try {
+                val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                val pi = PendingIntent.getBroadcast(
+                    this@MainActivity, id, Intent(this@MainActivity, AlarmReceiver::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE
+                )
+                if (pi != null) { am.cancel(pi); pi.cancel() }
+            } catch (_: Exception) {}
+        }
+        @JavascriptInterface fun takeFired(): String {
+            val sp = getSharedPreferences("fla_alarm", Context.MODE_PRIVATE)
+            val s = sp.getStringSet("fired", emptySet()) ?: emptySet()
+            if (s.isEmpty()) return ""
+            sp.edit().remove("fired").apply()
+            return s.joinToString(",")
+        }
+        @JavascriptInterface fun findContact(q: String): String {
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return ""
+            fun nz(x: String) = java.text.Normalizer.normalize(x, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
+            val toks = nz(q).split(Regex("\\s+")).filter { it.isNotBlank() }
+            if (toks.isEmpty()) return ""
+            var best: Pair<String, String>? = null
+            try {
+                contentResolver.query(android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER),
+                    null, null, null)?.use { c ->
+                    while (c.moveToNext()) {
+                        val n = c.getString(0) ?: continue
+                        val num = c.getString(1) ?: continue
+                        val nn = nz(n)
+                        if (toks.all { nn.contains(it) } && (best == null || n.length < best!!.first.length)) best = Pair(n, num)
+                    }
+                }
+            } catch (_: Exception) { return "" }
+            val b = best ?: return ""
+            return JSONObject().put("n", b.first).put("p", b.second).toString()
+        }
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.loadUrl(URL) } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
+        @JavascriptInterface fun listApps(): String = try {
+            val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val arr = JSONArray()
+            val seen = HashSet<String>()
+            for (r in packageManager.queryIntentActivities(i, 0)) {
+                val pk = r.activityInfo.packageName
+                if (pk == packageName || !seen.add(pk)) continue
+                arr.put(JSONObject().put("n", r.loadLabel(packageManager).toString()).put("p", pk))
+            }
+            arr.toString()
+        } catch (e: Exception) { "[]" }
         @JavascriptInterface fun openApp(id: String) { launch(id, apps[id] ?: return) }
         @JavascriptInterface fun openPkgs(id: String, csv: String) { launch(id, csv.split(",").filter { it.isNotBlank() }) }
 
