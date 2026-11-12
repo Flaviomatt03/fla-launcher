@@ -2,6 +2,8 @@ name: Build APK
 on:
   push:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,7 +17,15 @@ jobs:
         with:
           gradle-version: 8.7
       - run: gradle assembleDebug --no-daemon
+      - run: grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts > app/build/outputs/apk/debug/version.txt
       - uses: actions/upload-artifact@v4
         with:
           name: FLA-Launcher
           path: app/build/outputs/apk/debug/*.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Ultima versione
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/version.txt
