@@ -3,9 +3,11 @@ package it.flatech.launcher
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -14,6 +16,8 @@ import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.view.View
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -77,6 +81,7 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
 
         web = WebView(this)
         setContentView(web)
+        immersive()
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -117,6 +122,23 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
             override fun onPermissionRequest(r: PermissionRequest) { runOnUiThread { r.grant(r.resources) } }
         }
         web.loadUrl(URL)
+    }
+
+    private fun immersive() {
+        if (Build.VERSION.SDK_INT >= 28) {
+            val a = window.attributes
+            a.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = a
+        }
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            or View.SYSTEM_UI_FLAG_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) immersive()
     }
 
     override fun onResume() {
@@ -242,6 +264,19 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
         @JavascriptInterface fun stopListen() { runOnUiThread { killRec(); h.postDelayed(unmute, 1500) } }
         @JavascriptInterface fun ver(): String = "1.4"
         @JavascriptInterface fun checkUpdate() { Thread { doUpdate() }.start() }
+        @JavascriptInterface fun battery(): String {
+            val i = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val l = i?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val sc = i?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+            val st = i?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val ch = st == BatteryManager.BATTERY_STATUS_CHARGING || st == BatteryManager.BATTERY_STATUS_FULL
+            val pct = if (l < 0 || sc <= 0) -1 else l * 100 / sc
+            return "{\"l\":" + pct + ",\"c\":" + ch + "}"
+        }
+        @JavascriptInterface fun inset(): Double {
+            val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+            return if (id > 0) resources.getDimensionPixelSize(id) / resources.displayMetrics.density.toDouble() else 28.0
+        }
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.loadUrl(URL) } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
