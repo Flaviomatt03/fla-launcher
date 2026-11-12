@@ -39,6 +39,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : Activity() {
+    private var fileCb: android.webkit.ValueCallback<Array<android.net.Uri>>? = null
+
+    override fun onActivityResult(req: Int, res: Int, data: Intent?) {
+        if (req == 77) {
+            val u = if (res == RESULT_OK && data?.data != null) arrayOf(data.data!!) else null
+            fileCb?.onReceiveValue(u)
+            fileCb = null
+        } else super.onActivityResult(req, res, data)
+    }
     companion object {
         @Volatile var visible = false
         const val URL = "https://flaviomatt03.github.io/fla-tech/"
@@ -81,7 +90,7 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        val perms = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS)
+        val perms = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS, Manifest.permission.CAMERA)
         if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
         if (perms.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) requestPermissions(perms.toTypedArray(), 1)
         askExactAlarm()
@@ -127,6 +136,15 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(r: PermissionRequest) { runOnUiThread { r.grant(r.resources) } }
+            override fun onShowFileChooser(w: WebView?, cb: android.webkit.ValueCallback<Array<android.net.Uri>>?, p: FileChooserParams?): Boolean {
+                fileCb?.onReceiveValue(null)
+                fileCb = cb
+                return try {
+                    val i = Intent(Intent.ACTION_GET_CONTENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "image/*" }
+                    startActivityForResult(i, 77)
+                    true
+                } catch (e: Exception) { fileCb = null; false }
+            }
         }
         web.loadUrl(URL)
     }
