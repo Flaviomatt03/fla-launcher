@@ -9,8 +9,8 @@ android {
         applicationId = "it.flatech.launcher"
         minSdk = 26
         targetSdk = 34
-        versionCode = 15
-        versionName = "2.4"
+        versionCode = 16
+        versionName = "2.5"
     }
     signingConfigs {
         getByName("debug") {

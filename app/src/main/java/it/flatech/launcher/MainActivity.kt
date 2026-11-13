@@ -70,6 +70,7 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
     private var offline = false
 
     private lateinit var web: WebView
+    private fun bioReply(ok: Boolean) { runOnUiThread { web.evaluateJavascript("window.__bio&&window.__bio(" + ok + ")", null) } }
     private var sr: SpeechRecognizer? = null
     private val h = Handler(Looper.getMainLooper())
     private val unmute = Runnable { mute(false) }
@@ -410,6 +411,26 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
         }
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.loadUrl(URL) } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
+
+        @JavascriptInterface fun bioAvail(): Boolean =
+            android.os.Build.VERSION.SDK_INT >= 28 && packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FINGERPRINT)
+
+        @JavascriptInterface fun bio() {
+            runOnUiThread {
+                if (android.os.Build.VERSION.SDK_INT < 28) { bioReply(false); return@runOnUiThread }
+                try {
+                    val prompt = android.hardware.biometrics.BiometricPrompt.Builder(this@MainActivity)
+                        .setTitle("FLA-Tech")
+                        .setSubtitle("Conferma con l'impronta")
+                        .setNegativeButton("Annulla", mainExecutor, android.content.DialogInterface.OnClickListener { _, _ -> bioReply(false) })
+                        .build()
+                    prompt.authenticate(android.os.CancellationSignal(), mainExecutor, object : android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: android.hardware.biometrics.BiometricPrompt.AuthenticationResult?) { bioReply(true) }
+                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) { bioReply(false) }
+                    })
+                } catch (e: Exception) { bioReply(false) }
+            }
+        }
 
         @JavascriptInterface fun listApps(): String = try {
             val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
