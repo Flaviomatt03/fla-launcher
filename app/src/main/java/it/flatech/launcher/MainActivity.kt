@@ -411,6 +411,17 @@ button{margin-top:10px;border:1px solid rgba(110,200,245,.6);background:rgba(10,
         @JavascriptInterface fun refresh() { runOnUiThread { web.clearCache(true); web.loadUrl(URL) } }
         @JavascriptInterface fun finishListen() { runOnUiThread { try { sr?.stopListening() } catch (_: Exception) {} } }
 
+        @JavascriptInterface fun listApps(): String = try {
+            val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val arr = JSONArray()
+            val seen = HashSet<String>()
+            for (r in packageManager.queryIntentActivities(i, 0)) {
+                val pk = r.activityInfo.packageName
+                if (pk == packageName || !seen.add(pk)) continue
+                arr.put(JSONObject().put("n", r.loadLabel(packageManager).toString()).put("p", pk))
+            }
+            arr.toString()
+        } catch (e: Exception) { "[]" }
         @JavascriptInterface fun openApp(id: String) { launch(id, apps[id] ?: return) }
         @JavascriptInterface fun openPkgs(id: String, csv: String) { launch(id, csv.split(",").filter { it.isNotBlank() }) }
 
